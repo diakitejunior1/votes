@@ -5,6 +5,7 @@ const CreatePoll = () => {
   const [question, setQuestion] = useState('');
   const [options, setOptions] = useState(['', '']);
   const [isPublic, setIsPublic] = useState(true);
+  const [password, setPassword] = useState('');
 
   const handleOptionChange = (value, index) => {
     const newOptions = [...options];
@@ -17,17 +18,25 @@ const CreatePoll = () => {
   };
 
   const handleSubmit = async () => {
+    if (!isPublic && password.trim() === '') {
+      alert('Password required for private polls.');
+      return;
+    }
+
     try {
       const payload = {
         question,
         options: options.filter(opt => opt.trim() !== ''),
-        isPublic
+        isPublic,
+        password: isPublic ? null : password
       };
 
       await axios.post('http://localhost:5000/api/polls', payload);
       alert('Poll created!');
       setQuestion('');
       setOptions(['', '']);
+      setIsPublic(true);
+      setPassword('');
     } catch (error) {
       console.error('Error creating poll:', error);
     }
@@ -63,6 +72,15 @@ const CreatePoll = () => {
           onChange={() => setIsPublic(!isPublic)}
         />
       </label>
+      <br />
+      {!isPublic && (
+        <input
+          type="password"
+          placeholder="Set poll password"
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+        />
+      )}
       <br />
       <button onClick={handleSubmit}>Submit Poll</button>
     </div>

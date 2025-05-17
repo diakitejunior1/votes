@@ -26,9 +26,10 @@ db.connect((err) => {
 
 // Endpoint to create a poll
 app.post('/api/polls', (req, res) => {
-    const { question, options, isPublic } = req.body;
-    const query = 'INSERT INTO polls (question, is_public) VALUES (?, ?)';
-    db.query(query, [question, isPublic], (err, result) => {
+    const { question, options, isPublic, password } = req.body;  // ✅ get password
+
+    const query = 'INSERT INTO polls (question, is_public, password) VALUES (?, ?, ?)';
+    db.query(query, [question, isPublic, password || null], (err, result) => {
         if (err) {
             console.error(err);
             return res.status(500).json({ message: 'Failed to create poll' });
@@ -49,9 +50,10 @@ app.post('/api/polls', (req, res) => {
     });
 });
 
+
 // Endpoint to get active polls
 app.get('/api/polls', (req, res) => {
-    const query = 'SELECT * FROM polls WHERE is_public = true';
+    const query = 'SELECT * FROM polls';
     db.query(query, (err, result) => {
         if (err) {
             console.error(err);
@@ -64,30 +66,49 @@ app.get('/api/polls', (req, res) => {
 // Endpoint to vote on a poll option
 app.post('/api/polls/:pollId/vote', (req, res) => {
     const { pollId } = req.params;
-    const { optionId } = req.body;
+    const { optionId, password } = req.body;
 
-    // Check if the optionId is valid
-    const checkOptionQuery = 'SELECT * FROM poll_options WHERE id = ? AND poll_id = ?';
-    db.query(checkOptionQuery, [optionId, pollId], (err, result) => {
+    // First fetch poll info to check if private and verify password
+    const pollQuery = 'SELECT * FROM polls WHERE id = ?';
+    db.query(pollQuery, [pollId], (err, pollResult) => {
         if (err) {
             console.error(err);
-            return res.status(500).json({ message: 'Failed to check option' });
+            return res.status(500).json({ message: 'Failed to fetch poll info' });
+        }
+        if (pollResult.length === 0) {
+            return res.status(404).json({ message: 'Poll not found' });
         }
 
-        if (result.length === 0) {
-            return res.status(404).json({ message: 'Option not found for this poll' });
+        const poll = pollResult[0];
+        if (!poll.is_public) {
+            if (!password || password !== poll.password) {
+                return res.status(403).json({ message: 'Invalid or missing password' });
+            }
         }
 
-        const query = 'INSERT INTO poll_votes (poll_option_id) VALUES (?)';
-        db.query(query, [optionId], (err) => {
+        // Check if the optionId is valid
+        const checkOptionQuery = 'SELECT * FROM poll_options WHERE id = ? AND poll_id = ?';
+        db.query(checkOptionQuery, [optionId, pollId], (err, optionResult) => {
             if (err) {
                 console.error(err);
-                return res.status(500).json({ message: 'Failed to vote' });
+                return res.status(500).json({ message: 'Failed to check option' });
             }
-            res.status(200).json({ message: 'Vote submitted successfully' });
+            if (optionResult.length === 0) {
+                return res.status(404).json({ message: 'Option not found for this poll' });
+            }
+
+            const query = 'INSERT INTO votes (poll_id, option_id) VALUES (?, ?)';
+            db.query(query, [pollId, optionId], (err) => {
+                if (err) {
+                    console.error(err);
+                    return res.status(500).json({ message: 'Failed to vote' });
+                }
+                res.status(200).json({ message: 'Vote submitted successfully' });
+            });
         });
     });
 });
+
 
 // Endpoint to get poll details along with options
 app.get('/api/polls/:pollId', (req, res) => {
@@ -124,23 +145,43 @@ app.get('/api/polls/:pollId', (req, res) => {
 // Endpoint to get poll results
 app.get('/api/polls/:pollId/results', (req, res) => {
     const pollId = req.params.pollId;
+    const password = req.query.password;  // get password from query param
 
-    const query = `
-        SELECT po.id AS option_id, po.option_text, COUNT(v.id) AS vote_count
-        FROM poll_options po
-        LEFT JOIN poll_votes v ON po.id = v.poll_option_id
-        WHERE po.poll_id = ?
-        GROUP BY po.id
-    `;
-
-    db.query(query, [pollId], (err, results) => {
+    const pollQuery = 'SELECT * FROM polls WHERE id = ?';
+    db.query(pollQuery, [pollId], (err, pollResult) => {
         if (err) {
-            console.error('Error fetching poll results:', err);
-            return res.status(500).json({ error: 'Failed to fetch results' });
+            console.error('Error fetching poll:', err);
+            return res.status(500).json({ error: 'Failed to fetch poll' });
         }
-        res.json(results);
+        if (pollResult.length === 0) {
+            return res.status(404).json({ error: 'Poll not found' });
+        }
+
+        const poll = pollResult[0];
+        if (!poll.is_public) {
+            if (!password || password !== poll.password) {
+                return res.status(403).json({ error: 'Invalid or missing password' });
+            }
+        }
+
+        const query = `
+            SELECT po.id AS option_id, po.option_text, COUNT(v.id) AS vote_count
+            FROM poll_options po
+            LEFT JOIN votes v ON po.id = v.option_id
+            WHERE po.poll_id = ?
+            GROUP BY po.id
+        `;
+
+        db.query(query, [pollId], (err, results) => {
+            if (err) {
+                console.error('Error fetching poll results:', err);
+                return res.status(500).json({ error: 'Failed to fetch results' });
+            }
+            res.json(results);
+        });
     });
 });
+
 
 // Start the server
 app.listen(5000, () => {

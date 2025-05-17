@@ -8,66 +8,94 @@ const VotePage = () => {
   const [selectedOption, setSelectedOption] = useState(null);
   const [voted, setVoted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [password, setPassword] = useState('');
+  const [passwordRequired, setPasswordRequired] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
 
   useEffect(() => {
     axios.get(`http://localhost:5000/api/polls/${pollId}`)
       .then(res => {
         setPoll(res.data);
-      })
-      .catch(err => console.error('Error fetching poll:', err));
-  }, [pollId]);
-
-  const handleVote = () => {
-    if (!selectedOption) {
-      return alert("Select an option first.");
-    }
-
-    setLoading(true); // Start loading
-
-    axios.post(`http://localhost:5000/api/polls/${pollId}/vote`, { optionId: selectedOption })
-      .then(() => {
-        setVoted(true);
-        setLoading(false); // Stop loading
-        alert('Vote recorded!');
+        setPasswordRequired(!res.data.is_public);
       })
       .catch(err => {
-        console.error('Voting failed:', err);
-        alert('Voting failed. Please try again.');
-        setLoading(false); // Stop loading even on error
+        console.error(err);
       });
+  }, [pollId]);
+
+  const handleVote = async () => {
+    if (!selectedOption) {
+      alert('Please select an option.');
+      return;
+    }
+
+    if (passwordRequired && password.trim() === '') {
+      alert('Password is required for this poll.');
+      return;
+    }
+
+    setLoading(true);
+    setPasswordError('');
+    try {
+      await axios.post(`http://localhost:5000/api/polls/${pollId}/vote`, {
+        optionId: selectedOption,
+        password: passwordRequired ? password : null,
+      });
+      setVoted(true);
+    } catch (error) {
+      if (error.response?.status === 403) {
+        setPasswordError('Incorrect password.');
+      } else {
+        alert('Error submitting vote.');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  if (!poll) return <p>Loading poll...</p>;
+  if (!poll) return <div>Loading poll...</div>;
+
+  if (voted) {
+    return (
+      <div>
+        <h3>Thanks for voting!</h3>
+        <Link to={`/poll/${pollId}/results${passwordRequired ? `?password=${encodeURIComponent(password)}` : ''}`}>
+          View Results
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div>
       <h2>{poll.question}</h2>
-      {poll.options && poll.options.length > 0 ? (
-        poll.options.map(opt => (
-          <div key={opt.id}>
+      {poll.options.map(option => (
+        <div key={option.id}>
+          <label>
             <input
               type="radio"
               name="option"
-              value={opt.id}
-              onChange={() => setSelectedOption(opt.id)}
+              value={option.id}
+              onChange={() => setSelectedOption(option.id)}
             />
-            {opt.option_text}
-          </div>
-        ))
-      ) : (
-        <p>No options available for this poll.</p>
-      )}
-
-      <button onClick={handleVote} disabled={loading}>
-        {loading ? 'Submitting...' : 'Submit Vote'}
-      </button>
-
-      {voted && (
-        <div style={{ marginTop: '20px' }}>
-          {/* No redirect, just show the results link */}
-          <Link to={`/poll/${pollId}/results`}>View Results</Link>
+            {option.option_text}
+          </label>
+        </div>
+      ))}
+      {passwordRequired && (
+        <div>
+          <input
+            type="password"
+            placeholder="Enter poll password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+          />
+          {passwordError && <p style={{ color: 'red' }}>{passwordError}</p>}
         </div>
       )}
+      <button onClick={handleVote} disabled={loading}>
+        {loading ? 'Submitting...' : 'Vote'}
+      </button>
     </div>
   );
 };
