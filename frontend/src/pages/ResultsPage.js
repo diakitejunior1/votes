@@ -1,84 +1,72 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
+import '../polls.css';
 
 const ResultsPage = () => {
   const { pollId } = useParams();
-  const [results, setResults] = useState(null);
-  const [poll, setPoll] = useState(null);
-  const [passwordPrompt, setPasswordPrompt] = useState(false);
-  const [password, setPassword] = useState('');
-  const [passwordError, setPasswordError] = useState('');
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const fetchResults = useCallback((pwd) => {
-    axios.get(`http://localhost:5000/api/polls/${pollId}/results`, {
-      headers: pwd ? { 'x-poll-password': pwd } : {}
-    })
+  useEffect(() => {
+    axios.get(`http://localhost:5000/api/polls/${pollId}/results`)
       .then(res => {
         setResults(res.data);
-        setPasswordPrompt(false);
-        setPasswordError('');
+        setLoading(false);
       })
       .catch(err => {
-        if (err.response) {
-          setPasswordPrompt(true);
-          if (err.response.status === 401) {
-            setPasswordError('Password required');
-          } else {
-            setPasswordError('incorrect password.');
-          }
-          setResults(null);
-        } else {
-          console.error('Error fetching results:', err);
-        }
+        console.error('Error fetching results:', err);
+        setLoading(false);
       });
   }, [pollId]);
 
-  const fetchPollDetails = useCallback((pwd) => {
-    axios.get(`http://localhost:5000/api/polls/${pollId}`, {
-      headers: pwd ? { 'x-poll-password': pwd } : {}
-    })
-      .then(res => setPoll(res.data))
-      .catch(err => console.error('Error fetching poll:', err));
-  }, [pollId]);
-
-  useEffect(() => {
-    fetchResults();
-    fetchPollDetails();
-  }, [fetchResults, fetchPollDetails]);
-
-  const handlePasswordSubmit = () => {
-    fetchResults(password);
-    fetchPollDetails(password);
-  };
-
-  if (passwordPrompt) {
-    return (
-      <div>
-        <h3>This poll is private. Please enter password:</h3>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        <button onClick={handlePasswordSubmit}>Submit</button>
-        {passwordError && <p style={{ color: 'red' }}>{passwordError}</p>}
-      </div>
-    );
-  }
-
-  if (!results || !poll) return <p>Loading results...</p>;
+  if (loading) return <p>Loading results...</p>;
 
   return (
-    <div>
-      <h2>Results for: {poll.question}</h2>
-      <ul>
-        {results.map(r => (
-          <li key={r.option_id}>
-            {r.option_text}: {r.vote_count} vote{r.vote_count !== 1 ? 's' : ''}
-          </li>
-        ))}
-      </ul>
+    <div className="poll-page">
+      <header className="poll-header">
+        <div className="container" style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 1rem' }}>
+          <h1 className="poll-title">PollWise System</h1>
+        </div>
+      </header>
+
+      <main className="poll-main">
+        <div className="poll-container">
+          <div className="poll-section-title">
+            <h2 className="poll-heading">📊 Poll Results</h2>
+            <p className="poll-description">See how the community voted.</p>
+          </div>
+
+          <div style={{
+            background: '#fff',
+            borderRadius: '10px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.05)',
+            padding: '2rem',
+            maxWidth: '600px',
+            margin: '0 auto'
+          }}>
+            {results.map(opt => (
+              <div
+                key={opt.option_id}
+                style={{
+                  marginBottom: '1.5rem',
+                  padding: '1rem',
+                  background: '#f9f9f9',
+                  borderRadius: '8px'
+                }}
+              >
+                <strong style={{ fontSize: '1.1rem', color: '#4f46e5' }}>{opt.option_text}</strong>
+                <p style={{ marginTop: '0.5rem', fontWeight: 'bold' }}>{opt.vote_count} vote(s)</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </main>
+
+      <footer className="poll-footer">
+        <div className="container" style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 1rem' }}>
+        </div>
+      </footer>
     </div>
   );
 };
