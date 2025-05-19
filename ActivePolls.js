@@ -1,0 +1,79 @@
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
+import { Link } from 'react-router-dom';
+import '../polls.css'; //C:\Users\13477\Downloads\votes1\votes\frontend\src\polls.css
+
+const ActivePolls = () => {
+  const [polls, setPolls] = useState([]);
+
+  useEffect(() => {
+    axios.get('http://localhost:5000/api/polls')
+      .then(res => setPolls(res.data))
+      .catch(err => console.error('Error fetching polls:', err));
+  }, []);
+
+const colors = ['poll-button-blue', 'poll-button-purple', 'poll-button-pink'];
+
+
+  
+//   return (
+//     <div>
+//       <h2>🗳️ Active Public Polls</h2>
+//       {polls.map(poll => (
+//         <div key={poll.id} style={{ marginBottom: '20px' }}>
+//           <h3>{poll.question}</h3>
+//           <Link to={`/poll/${poll.id}`} style={{ marginRight: '10px' }}>Vote</Link>
+//           <Link to={`/poll/${poll.id}/results`}>View Results</Link>
+//         </div>
+//       ))}
+//     </div>
+//   );
+// };
+  return (
+    <div className="poll-page">
+      <header className="poll-header">
+        <div className="container" style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 1rem' }}>
+          <h1 className="poll-title">PollWise System</h1>
+        </div>
+      </header>
+
+      <main className="poll-main">
+        <div className="poll-container">
+          <div className="poll-section-title">
+            <h2 className="poll-heading">🗳️ Active Public Polls</h2>
+            <p className="poll-description">Browse the currently open polls and vote now.</p>
+          </div>
+
+          <div className="poll-grid">
+            {polls.map((poll, index) => {
+              // Color style selector
+              const colors = ['poll-button-blue', 'poll-button-purple', 'poll-button-pink'];
+              const buttonColor = colors[index % colors.length];
+
+              return (
+                <div key={poll.id} className={`poll-button ${buttonColor}`}>
+                  <div className="poll-button-background"></div>
+                  <div className="poll-button-content">
+                    <div className="poll-button-icon">📊</div>
+                    <h3 className="poll-button-title">{poll.question}</h3>
+                    <p className="poll-button-description">
+                      <Link to={`/poll/${poll.id}`} style={{ color: 'white', fontWeight: 'bold', textDecoration: 'underline', marginRight: '10px' }}>Vote</Link>
+                      <Link to={`/poll/${poll.id}/results`} style={{ color: 'white', fontWeight: 'bold', textDecoration: 'underline' }}>Results</Link>
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </main>
+
+      <footer className="poll-footer">
+        <div className="container" style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 1rem' }}>
+        </div>
+      </footer>
+    </div>
+  );
+};
+
+export default ActivePolls;
