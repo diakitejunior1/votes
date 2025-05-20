@@ -95,6 +95,7 @@ function checkPollPassword(req, res, next) {
 
 // Get active polls
 app.get('/api/polls', (req, res) => {
+    // Get the current UTC time in the correct format
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
     console.log('Server UTC time for active polls check:', now);
 
