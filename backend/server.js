@@ -7,17 +7,32 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
+// ✅ Health check route for Railway
+app.get('/', (req, res) => {
+    res.send('✅ Server is alive and running!');
+});
+
+// ✅ Global error handlers
+process.on('uncaughtException', (err) => {
+    console.error('❌ Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// ✅ MySQL connection
 const db = mysql.createConnection('mysql://root:mXOPvBaJamJciLMucJEhCMMPPDHRYpDj@nozomi.proxy.rlwy.net:43221/polling_system');
 
 db.connect((err) => {
     if (err) {
-        console.error('Error connecting to MySQL: ' + err.stack);
+        console.error('❌ Error connecting to MySQL: ' + err.stack);
         return;
     }
-    console.log('Connected to MySQL as id ' + db.threadId);
+    console.log('✅ Connected to MySQL as id ' + db.threadId);
 });
 
-// Create poll endpoint: now requires password if isPublic === false
+// Create poll endpoint
 app.post('/api/polls', (req, res) => {
     const { question, options, isPublic, startTime, endTime, type, password } = req.body;
 
@@ -47,7 +62,7 @@ app.post('/api/polls', (req, res) => {
     });
 });
 
-// Middleware to check poll password before returning poll details (vote) or results
+// Middleware to check poll password
 function checkPollPassword(req, res, next) {
     const pollId = req.params.pollId;
     const providedPassword = req.headers['x-poll-password'];
@@ -66,7 +81,6 @@ function checkPollPassword(req, res, next) {
         const pollPassword = results[0].password;
 
         if (pollPassword) {
-            // Poll is private, must provide password header and match
             if (!providedPassword) {
                 return res.status(401).json({ message: 'Password required to access this poll' });
             }
@@ -74,13 +88,12 @@ function checkPollPassword(req, res, next) {
                 return res.status(403).json({ message: 'Incorrect password' });
             }
         }
-        // else public poll, no password needed
 
         next();
     });
 }
 
-// Get active polls - only return public polls here
+// Get active polls
 app.get('/api/polls', (req, res) => {
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
     console.log('Server UTC time for active polls check:', now);
@@ -99,7 +112,7 @@ app.get('/api/polls', (req, res) => {
     });
 });
 
-// Vote on poll options - password protected if poll is private
+// Vote on poll options
 app.post('/api/polls/:pollId/vote', checkPollPassword, (req, res) => {
     const { pollId } = req.params;
     const { optionIds } = req.body;
@@ -147,7 +160,7 @@ app.post('/api/polls/:pollId/vote', checkPollPassword, (req, res) => {
     });
 });
 
-// Get closed polls (only public for listing)
+// Get closed polls
 app.get('/api/polls/closed', (req, res) => {
     const query = `
         SELECT * FROM polls 
@@ -163,7 +176,7 @@ app.get('/api/polls/closed', (req, res) => {
     });
 });
 
-// Get poll details and options - password protected if private
+// Get poll details
 app.get('/api/polls/:pollId', checkPollPassword, (req, res) => {
     const pollId = req.params.pollId;
 
@@ -194,7 +207,7 @@ app.get('/api/polls/:pollId', checkPollPassword, (req, res) => {
     });
 });
 
-// Get poll results - password protected if private
+// Get poll results
 app.get('/api/polls/:pollId/results', checkPollPassword, (req, res) => {
     const pollId = req.params.pollId;
 
@@ -215,8 +228,8 @@ app.get('/api/polls/:pollId/results', checkPollPassword, (req, res) => {
     });
 });
 
+// ✅ Start server
 const PORT = process.env.PORT || 5000;
-
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server is running on port ${PORT}`);
+    console.log(`✅ Server is running on port ${PORT}`);
 });
