@@ -4,7 +4,15 @@ const bodyParser = require('body-parser');
 const mysql = require('mysql2');
 
 const app = express();
-app.use(cors());
+
+// ✅ Enhanced CORS configuration
+app.use(cors({
+    origin: ['http://localhost:3000'], // Add production URL if needed
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'x-poll-password'],
+    credentials: true
+}));
+
 app.use(bodyParser.json());
 
 // ✅ Health check route for Railway
@@ -53,7 +61,6 @@ app.post('/api/polls', (req, res) => {
             db.query(optionQuery, [pollId, option], (err) => {
                 if (err) {
                     console.error(err);
-                    return res.status(500).json({ message: 'Failed to add options' });
                 }
             });
         });
@@ -95,7 +102,6 @@ function checkPollPassword(req, res, next) {
 
 // Get active polls
 app.get('/api/polls', (req, res) => {
-    // Get the current UTC time in the correct format
     const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
     console.log('Server UTC time for active polls check:', now);
 
@@ -112,7 +118,7 @@ app.get('/api/polls', (req, res) => {
         res.json(result);
     });
 });
-/*
+
 // Vote on poll options
 app.post('/api/polls/:pollId/vote', checkPollPassword, (req, res) => {
     const { pollId } = req.params;
@@ -148,58 +154,6 @@ app.post('/api/polls/:pollId/vote', checkPollPassword, (req, res) => {
                 return res.status(400).json({ message: 'Invalid options selected' });
             }
 
-            const values = optionIds.map(id => [pollId, id]);
-            const insertQuery = 'INSERT INTO votes (poll_id, option_id) VALUES ?';
-            db.query(insertQuery, [values], (err) => {
-                if (err) {
-                    console.error(err);
-                    return res.status(500).json({ message: 'Failed to submit vote(s)' });
-                }
-                res.status(200).json({ message: 'Vote(s) submitted successfully' });
-            });
-        });
-    });
-});
-*/
-
-// Vote on poll options
-app.post('/api/polls/:pollId/vote', checkPollPassword, (req, res) => {
-    const { pollId } = req.params;
-    const { optionIds } = req.body;
-
-    if (!Array.isArray(optionIds) || optionIds.length === 0) {
-        return res.status(400).json({ message: 'No options selected' });
-    }
-
-    // Retrieve poll type
-    const getPollTypeQuery = 'SELECT type FROM polls WHERE id = ?';
-    db.query(getPollTypeQuery, [pollId], (err, pollResult) => {
-        if (err || pollResult.length === 0) {
-            console.error(err);
-            return res.status(500).json({ message: 'Failed to retrieve poll type' });
-        }
-
-        const type = pollResult[0].type;
-        if (type === 'single' && optionIds.length > 1) {
-            return res.status(400).json({ message: 'This poll allows only one selection' });
-        }
-
-        // Validate that the options are valid for the poll
-        const validateOptionsQuery = `
-            SELECT id FROM poll_options
-            WHERE poll_id = ? AND id IN (?)
-        `;
-        db.query(validateOptionsQuery, [pollId, optionIds], (err, validOptions) => {
-            if (err) {
-                console.error(err);
-                return res.status(500).json({ message: 'Failed to validate options' });
-            }
-
-            if (validOptions.length !== optionIds.length) {
-                return res.status(400).json({ message: 'Invalid options selected' });
-            }
-
-            // Check if the user has already voted for any of the selected options (if voting is restricted to one option per poll)
             const checkExistingVotesQuery = `
                 SELECT * FROM votes
                 WHERE poll_id = ? AND option_id IN (?) 
@@ -214,7 +168,6 @@ app.post('/api/polls/:pollId/vote', checkPollPassword, (req, res) => {
                     return res.status(400).json({ message: 'You have already voted for one or more of these options' });
                 }
 
-                // Insert the new vote(s) into the votes table
                 const values = optionIds.map(id => [pollId, id]);
                 const insertQuery = 'INSERT INTO votes (poll_id, option_id) VALUES ?';
                 db.query(insertQuery, [values], (err) => {
