@@ -1,3 +1,4 @@
+/*
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -195,6 +196,286 @@ app.get('/api/polls/closed', (req, res) => {
             return res.status(500).json({ message: 'Failed to fetch closed polls' });
         }
         res.json(result);
+    });
+});
+
+// Get poll details
+app.get('/api/polls/:pollId', checkPollPassword, (req, res) => {
+    const pollId = req.params.pollId;
+
+    const pollQuery = 'SELECT * FROM polls WHERE id = ?';
+    const optionsQuery = 'SELECT * FROM poll_options WHERE poll_id = ?';
+
+    db.query(pollQuery, [pollId], (err, pollResult) => {
+        if (err) {
+            console.error('Error fetching poll:', err);
+            return res.status(500).json({ error: 'Failed to fetch poll' });
+        }
+
+        if (pollResult.length === 0) {
+            return res.status(404).json({ error: 'Poll not found' });
+        }
+
+        const poll = pollResult[0];
+
+        db.query(optionsQuery, [pollId], (err, optionsResult) => {
+            if (err) {
+                console.error('Error fetching poll options:', err);
+                return res.status(500).json({ error: 'Failed to fetch poll options' });
+            }
+
+            poll.options = optionsResult;
+            res.json(poll);
+        });
+    });
+});
+
+// Get poll results
+app.get('/api/polls/:pollId/results', checkPollPassword, (req, res) => {
+    const pollId = req.params.pollId;
+
+    const query = `
+        SELECT po.id AS option_id, po.option_text, COUNT(v.id) AS vote_count
+        FROM poll_options po
+        LEFT JOIN votes v ON po.id = v.option_id
+        WHERE po.poll_id = ?
+        GROUP BY po.id
+    `;
+
+    db.query(query, [pollId], (err, results) => {
+        if (err) {
+            console.error('Error fetching poll results:', err);
+            return res.status(500).json({ error: 'Failed to fetch results' });
+        }
+        res.json(results);
+    });
+});
+
+// ✅ Start server
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`✅ Server is running on port ${PORT}`);
+});
+*/
+const express = require('express');
+const cors = require('cors');
+const bodyParser = require('body-parser');
+const mysql = require('mysql2');
+
+const app = express();
+
+// ✅ Enhanced CORS configuration
+app.use(cors({
+    origin: ['http://localhost:3000'], // Add production URL if needed
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'x-poll-password'],
+    credentials: true
+}));
+
+app.use(bodyParser.json());
+
+// ✅ Health check route for Railway
+app.get('/', (req, res) => {
+    res.send('✅ Server is alive and running!');
+});
+
+// ✅ Global error handlers
+process.on('uncaughtException', (err) => {
+    console.error('❌ Uncaught Exception:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// ✅ MySQL connection
+const db = mysql.createConnection('mysql://root:mXOPvBaJamJciLMucJEhCMMPPDHRYpDj@nozomi.proxy.rlwy.net:43221/polling_system');
+
+db.connect((err) => {
+    if (err) {
+        console.error('❌ Error connecting to MySQL: ' + err.stack);
+        return;
+    }
+    console.log('✅ Connected to MySQL as id ' + db.threadId);
+});
+
+// Middleware to check poll password
+function checkPollPassword(req, res, next) {
+    const pollId = req.params.pollId;
+    const providedPassword = req.headers['x-poll-password'];
+
+    const pollQuery = 'SELECT password FROM polls WHERE id = ?';
+    db.query(pollQuery, [pollId], (err, results) => {
+        if (err) {
+            console.error('Error fetching poll password:', err);
+            return res.status(500).json({ message: 'Server error' });
+        }
+
+        if (results.length === 0) {
+            return res.status(404).json({ message: 'Poll not found' });
+        }
+
+        const pollPassword = results[0].password;
+
+        if (pollPassword) {
+            if (!providedPassword) {
+                return res.status(401).json({ message: 'Password required to access this poll' });
+            }
+            if (providedPassword !== pollPassword) {
+                return res.status(403).json({ message: 'Incorrect password' });
+            }
+        }
+
+        next();
+    });
+}
+
+// Get active polls
+app.get('/api/polls', (req, res) => {
+    const nowUTC = new Date();
+    const localOffsetMinutes = nowUTC.getTimezoneOffset();
+    nowUTC.setMinutes(nowUTC.getMinutes() + localOffsetMinutes);
+    const nowLocal = nowUTC.toISOString().slice(0, 19).replace('T', ' ');
+
+    console.log('Local time for active polls check:', nowLocal);
+
+    const query = `
+        SELECT * FROM polls
+        WHERE start_time <= ?
+        AND (end_time IS NULL OR end_time >= ?)
+    `;
+    db.query(query, [nowLocal, nowLocal], (err, result) => {
+        if (err) {
+            console.error('Error fetching active polls:', err);
+            return res.status(500).json({ message: 'Failed to fetch polls' });
+        }
+        res.json(result);
+    });
+});
+
+// Vote on poll options
+app.post('/api/polls/:pollId/vote', checkPollPassword, (req, res) => {
+    const { pollId } = req.params;
+    const { optionIds } = req.body;
+
+    if (!Array.isArray(optionIds) || optionIds.length === 0) {
+        return res.status(400).json({ message: 'No options selected' });
+    }
+
+    const getPollTypeQuery = 'SELECT type FROM polls WHERE id = ?';
+    db.query(getPollTypeQuery, [pollId], (err, pollResult) => {
+        if (err || pollResult.length === 0) {
+            console.error(err);
+            return res.status(500).json({ message: 'Failed to retrieve poll type' });
+        }
+
+        const type = pollResult[0].type;
+        if (type === 'single' && optionIds.length > 1) {
+            return res.status(400).json({ message: 'This poll allows only one selection' });
+        }
+
+        const validateOptionsQuery = `
+            SELECT id FROM poll_options
+            WHERE poll_id = ? AND id IN (?)
+        `;
+        db.query(validateOptionsQuery, [pollId, optionIds], (err, validOptions) => {
+            if (err) {
+                console.error(err);
+                return res.status(500).json({ message: 'Failed to validate options' });
+            }
+
+            if (validOptions.length !== optionIds.length) {
+                return res.status(400).json({ message: 'Invalid options selected' });
+            }
+
+            const checkExistingVotesQuery = `
+                SELECT * FROM votes
+                WHERE poll_id = ? AND option_id IN (?) 
+            `;
+            db.query(checkExistingVotesQuery, [pollId, optionIds], (err, existingVotes) => {
+                if (err) {
+                    console.error(err);
+                    return res.status(500).json({ message: 'Failed to check existing votes' });
+                }
+
+                if (existingVotes.length > 0) {
+                    return res.status(400).json({ message: 'You have already voted for one or more of these options' });
+                }
+
+                const values = optionIds.map(id => [pollId, id]);
+                const insertQuery = 'INSERT INTO votes (poll_id, option_id) VALUES ?';
+                db.query(insertQuery, [values], (err) => {
+                    if (err) {
+                        console.error(err);
+                        return res.status(500).json({ message: 'Failed to submit vote(s)' });
+                    }
+                    res.status(200).json({ message: 'Vote(s) submitted successfully' });
+                });
+            });
+        });
+    });
+});
+
+// Get closed polls
+app.get('/api/polls/closed', (req, res) => {
+    const nowUTC = new Date();
+    const localOffsetMinutes = nowUTC.getTimezoneOffset();
+    nowUTC.setMinutes(nowUTC.getMinutes() + localOffsetMinutes);
+    const nowLocal = nowUTC.toISOString().slice(0, 19).replace('T', ' ');
+
+    const query = `
+        SELECT * FROM polls 
+        WHERE end_time IS NOT NULL 
+        AND end_time < ?
+    `;
+    db.query(query, [nowLocal], (err, result) => {
+        if (err) {
+            console.error('Error fetching closed polls:', err);
+            return res.status(500).json({ message: 'Failed to fetch closed polls' });
+        }
+        res.json(result);
+    });
+});
+
+// Create poll endpoint
+app.post('/api/polls', (req, res) => {
+    const { question, options, isPublic, startTime, endTime, type, password } = req.body;
+
+    if (!isPublic && (!password || password.trim() === '')) {
+        return res.status(400).json({ message: 'Password is required for private polls' });
+    }
+
+    const startTimeUTC = new Date(startTime);
+    const endTimeUTC = endTime ? new Date(endTime) : null;
+    const localOffsetMinutes = startTimeUTC.getTimezoneOffset();
+
+    startTimeUTC.setMinutes(startTimeUTC.getMinutes() + localOffsetMinutes);
+    const startTimeLocal = startTimeUTC.toISOString().slice(0, 19).replace('T', ' ');
+
+    let endTimeLocal = null;
+    if (endTimeUTC) {
+        endTimeUTC.setMinutes(endTimeUTC.getMinutes() + localOffsetMinutes);
+        endTimeLocal = endTimeUTC.toISOString().slice(0, 19).replace('T', ' ');
+    }
+
+    const query = 'INSERT INTO polls (question, is_public, start_time, end_time, type, password) VALUES (?, ?, ?, ?, ?, ?)';
+    db.query(query, [question, isPublic, startTimeLocal, endTimeLocal, type, isPublic ? null : password], (err, result) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).json({ message: 'Failed to create poll' });
+        }
+
+        const pollId = result.insertId;
+        options.forEach(option => {
+            const optionQuery = 'INSERT INTO poll_options (poll_id, option_text) VALUES (?, ?)';
+            db.query(optionQuery, [pollId, option], (err) => {
+                if (err) {
+                    console.error(err);
+                }
+            });
+        });
+
+        res.status(201).json({ message: 'Poll created successfully' });
     });
 });
 
