@@ -69,6 +69,7 @@ app.post('/api/polls', (req, res) => {
     });
 });
 */
+
 // Create poll endpoint: now requires password if isPublic === false
 app.post('/api/polls', (req, res) => {
     const { question, options, isPublic, startTime, endTime, type, password } = req.body;
@@ -77,27 +78,44 @@ app.post('/api/polls', (req, res) => {
         return res.status(400).json({ message: 'Password is required for private polls' });
     }
 
+    // Convert to UTC format for MySQL DATETIME
+    const startUTC = new Date(startTime).toISOString().slice(0, 19).replace('T', ' ');
+    const endUTC = endTime ? new Date(endTime).toISOString().slice(0, 19).replace('T', ' ') : null;
+
     const query = 'INSERT INTO polls (question, is_public, start_time, end_time, type, password) VALUES (?, ?, ?, ?, ?, ?)';
-    db.query(query, [question, isPublic, startTime, endTime, type, isPublic ? null : password], (err, result) => {
+    db.query(query, [question, isPublic, startUTC, endUTC, type, isPublic ? null : password], (err, result) => {
         if (err) {
-            console.error(err);
+            console.error('❌ Failed to insert poll:', err);
             return res.status(500).json({ message: 'Failed to create poll' });
         }
 
         const pollId = result.insertId;
-        options.forEach(option => {
-            const optionQuery = 'INSERT INTO poll_options (poll_id, option_text) VALUES (?, ?)';
-            db.query(optionQuery, [pollId, option], (err) => {
-                if (err) {
-                    console.error(err);
-                    return res.status(500).json({ message: 'Failed to add options' });
-                }
+
+        // Insert poll options
+        const optionInsertions = options.map(option => {
+            return new Promise((resolve, reject) => {
+                const optionQuery = 'INSERT INTO poll_options (poll_id, option_text) VALUES (?, ?)';
+                db.query(optionQuery, [pollId, option], (err) => {
+                    if (err) {
+                        console.error('❌ Failed to insert option:', err);
+                        reject(err);
+                    } else {
+                        resolve();
+                    }
+                });
             });
         });
 
-        res.status(201).json({ message: 'Poll created successfully' });
+        Promise.all(optionInsertions)
+            .then(() => {
+                res.status(201).json({ message: 'Poll created successfully' });
+            })
+            .catch(() => {
+                res.status(500).json({ message: 'Poll created, but failed to add some options' });
+            });
     });
 });
+
 // Middleware to check poll password
 function checkPollPassword(req, res, next) {
     const pollId = req.params.pollId;
@@ -149,17 +167,19 @@ app.get('/api/polls', (req, res) => {
 });
 */
 
-// Get active polls - only return public polls here
+// Get active polls - force UTC comparison
 app.get('/api/polls', (req, res) => {
-    const now = new Date();
+    const nowUtc = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    console.log('📌 UTC for active poll check:', nowUtc);
+
     const query = `
         SELECT * FROM polls
         WHERE start_time <= ?
         AND (end_time IS NULL OR end_time >= ?)
     `;
-    db.query(query, [now, now], (err, result) => {
+    db.query(query, [nowUtc, nowUtc], (err, result) => {
         if (err) {
-            console.error(err);
+            console.error('❌ Error fetching active polls:', err);
             return res.status(500).json({ message: 'Failed to fetch polls' });
         }
         res.json(result);
@@ -245,21 +265,25 @@ app.get('/api/polls/closed', (req, res) => {
     });
 });
 */
-// Get closed polls (only public for listing)
+// Get closed polls - force UTC comparison
 app.get('/api/polls/closed', (req, res) => {
+    const nowUtc = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    console.log('📌 UTC for closed poll check:', nowUtc);
+
     const query = `
         SELECT * FROM polls 
         WHERE end_time IS NOT NULL 
-        AND end_time < NOW()
+        AND end_time < ?
     `;
-    db.query(query, (err, result) => {
+    db.query(query, [nowUtc], (err, result) => {
         if (err) {
-            console.error('Error fetching closed polls:', err);
+            console.error('❌ Error fetching closed polls:', err);
             return res.status(500).json({ message: 'Failed to fetch closed polls' });
         }
         res.json(result);
     });
 });
+
 
 // Get poll details
 app.get('/api/polls/:pollId', checkPollPassword, (req, res) => {
