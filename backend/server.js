@@ -7,7 +7,7 @@ const app = express();
 
 // ✅ Enhanced CORS configuration
 app.use(cors({
-    origin: ['http://localhost:3000'], // Add production URL if needed
+    origin: ['http://localhost:3000','https://votepolls.netlify.app'], // Add production URL if needed
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'x-poll-password'],
     credentials: true
